@@ -1,7 +1,10 @@
 /*
 /// Whip's Gravity Alignment Systems v25 - revision: 5/22/18 ///    
-
 Written by Whiplash141    
+*/
+
+/*
+/// Speed Maintenance added 7/13/2022
 */
 
 /*    
@@ -9,6 +12,10 @@ Written by Whiplash141
     You can edit these vars   
 ==============================  
 */
+
+const double minSpeed = 5; // Speed Maintenance
+const double maxSpeed = 12; // Speed Maintenance
+const string reverseThrusterGroup = "ReverseThrusters"; // Speed Maintenance
 
 const string gyroExcludeName = "Exclude";
 const string statusScreenName = "Alignment"; //(Optional) Name of status screen
@@ -40,17 +47,29 @@ bool canTolerate = true;
 string stableStatus = ">> Disabled <<";
 string gravityMagnitudeString;
 string overrideStatus;
-
 List<IMyGyro> gyros = new List<IMyGyro>();
 List<IMyShipController> shipControllers = new List<IMyShipController>();
 
 PID pitchPID;
 PID rollPID;
 
+// Bob King (@subbob) 13 July 2022
+// +++ Declarations for Speed Maintenance +++
+
+Vector3D worldVelocity;
+
+List<IMyThrust> thrusters = new List<IMyThrust>();
+
+// --- Declarations for Speed Maintenance ---
+
 Program()
 {
     Runtime.UpdateFrequency = UpdateFrequency.Once;
     Echo("If you can read this\nclick the 'Run' button!");
+	
+	IMyBlockGroup group = GridTerminalSystem.GetBlockGroupWithName(reverseThrusterGroup);
+	group.GetBlocksOfType(thrusters);
+	
     pitchPID = new PID(proportionalConstant, 0, derivativeConstant, -10, 10, timeLimit);
     rollPID = new PID(proportionalConstant, 0, derivativeConstant, -10, 10, timeLimit);
 }
@@ -62,8 +81,8 @@ void Main(string arg, UpdateType updateSource)
     if ((Runtime.UpdateFrequency & UpdateFrequency.Update1) == 0)
         Runtime.UpdateFrequency = UpdateFrequency.Update1;
     //------------------------------------------
-    
-    timeElapsed += Runtime.TimeSinceLastRun.TotalSeconds;
+
+	timeElapsed += Runtime.TimeSinceLastRun.TotalSeconds;
 
     switch (arg.ToLower())
     {
@@ -97,6 +116,7 @@ void Main(string arg, UpdateType updateSource)
     if (timeElapsed >= timeLimit)
     {
         AlignWithGravity();
+		CheckSpeed(); // Checks if Speed between minSpeed and maxSpeed
         StatusScreens();
         timeElapsed = 0;
         Echo("Stabilizers on?: " + shouldAlign.ToString());
@@ -136,6 +156,27 @@ IMyShipController GetControlledShipController(List<IMyShipController> controller
     return controllers[0];
 }
 
+// CheckSpeed() toggles status of ReverseThrusters when needed
+void CheckSpeed()
+{
+	bool ToggleThrusters = false;
+	if (worldVelocity.Length() < minSpeed)
+		{ // turn off Reverse Thrusters
+			Echo("Too Slow. Disabling Reverse Thrusters");	
+			ToggleThrusters = true;
+		}
+	else if  (worldVelocity.Length() > maxSpeed)
+		{ // turn on Reverse Thrusters
+			Echo("Too Fast. Enabling Reverse Thrusters");	
+			ToggleThrusters = true;
+		}
+	if (ToggleThrusters)
+		foreach (IMyThrust t in thrusters)
+		{
+			t.Enabled = !t.Enabled;
+		}
+}
+
 void AlignWithGravity()
 {
     //---Find our refrence and comparision blocks    
@@ -151,6 +192,9 @@ void AlignWithGravity()
     //---Assign our reference block
     IMyShipController referenceBlock = GetControlledShipController(shipControllers);
 
+	//-- Bob King (@subbob) -- Adding Velocity Code
+	worldVelocity = referenceBlock.GetShipVelocities().LinearVelocity;
+	
     //---Populate gyro list
     gyros.Clear();
     GridTerminalSystem.GetBlocksOfType(gyros, block => block.CubeGrid == referenceBlock.CubeGrid && !block.CustomName.Contains(gyroExcludeName));
@@ -268,14 +312,20 @@ void StatusScreens()
     double pitch_deg = -anglePitch / Math.PI * 180;
     string rollStatusString = AngleStatus(roll_deg);
     string pitchStatusString = AngleStatus(pitch_deg);
-
+	
     //---Construct our final string  
     string statusScreenMessage = shipName
         + "\n            Natural Gravity: " + gravityMagnitudeString
         + "\n            Stabilizer: " + stableStatus
         + "\n\n            Roll Angle: " + Math.Round(roll_deg, 2).ToString() + " degrees\n           " + rollStatusString
         + "\n\n            Pitch Angle: " + Math.Round(pitch_deg, 2).ToString() + " degrees\n           " + pitchStatusString
-        + overrideStatus;
+        + "\n\n            Velocity (" 
+		+  "x: " + Math.Round(worldVelocity.X,0).ToString() + ", "
+		+  "y: " + Math.Round(worldVelocity.Y,0).ToString() + ", "		
+		+  "z: " + Math.Round(worldVelocity.Z,0).ToString() + ", "		
+        + ") m/s"
+		+ "\n\n            Speed: " + worldVelocity.Length().ToString()
+		+ overrideStatus;
 
 
     //---Write to screens  
