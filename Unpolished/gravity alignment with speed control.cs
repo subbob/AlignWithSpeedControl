@@ -1,21 +1,31 @@
 /*
-/// Whip's Gravity Alignment Systems v25 - revision: 5/22/18 ///    
-Written by Whiplash141    
-*/
+/// Subbob's Alignment and Speed Control - v1 5/17/22 ///
+Forked from Whip's Gravity Alignment Systems v25 - revision: 5/22/18 (Written by Whiplash141)
 
-/*
-/// Speed Maintenance added 7/13/2022
-*/
 
-/*    
+// ========== Instructions ==========
+
+The speed control section makes the following assmptions:
+-- Dampeners On
+-- aheadThrusterGroup set to some level of manual override
+
+If you wish to use reserve a gyro for other uses (eg a continuous turn) give
+it the gyroExcludeName tag
+
 ==============================    
-    You can edit these vars   
+    User Options Below
 ==============================  
 */
 
-const double minSpeed = 5; // Speed Maintenance
-const double maxSpeed = 12; // Speed Maintenance
+// Speed Control Variables
+
+const bool MaintainSpeed = true; // Flag used for Speed Maintenance option
+const double minSpeed = 179; // Minimum Desired Speed
+const double maxSpeed = 181; // Maximum Desired Speed
 const string reverseThrusterGroup = "ReverseThrusters"; // Speed Maintenance
+const string aheadThrusterGroup = "AheadThrusters"; // Speed Maintenance
+
+// Grav Align variables
 
 const string gyroExcludeName = "Exclude";
 const string statusScreenName = "Alignment"; //(Optional) Name of status screen
@@ -58,7 +68,8 @@ PID rollPID;
 
 Vector3D worldVelocity;
 
-List<IMyThrust> thrusters = new List<IMyThrust>();
+List<IMyThrust> reverseThrusters = new List<IMyThrust>();
+List<IMyThrust> aheadThrusters = new List<IMyThrust>();
 
 // --- Declarations for Speed Maintenance ---
 
@@ -67,9 +78,12 @@ Program()
     Runtime.UpdateFrequency = UpdateFrequency.Once;
     Echo("If you can read this\nclick the 'Run' button!");
 	
-	IMyBlockGroup group = GridTerminalSystem.GetBlockGroupWithName(reverseThrusterGroup);
-	group.GetBlocksOfType(thrusters);
-	
+	IMyBlockGroup group1 = GridTerminalSystem.GetBlockGroupWithName(reverseThrusterGroup);
+	group1.GetBlocksOfType(reverseThrusters);
+
+	IMyBlockGroup group2 = GridTerminalSystem.GetBlockGroupWithName(aheadThrusterGroup);
+	group2.GetBlocksOfType(aheadThrusters);
+
     pitchPID = new PID(proportionalConstant, 0, derivativeConstant, -10, 10, timeLimit);
     rollPID = new PID(proportionalConstant, 0, derivativeConstant, -10, 10, timeLimit);
 }
@@ -115,8 +129,11 @@ void Main(string arg, UpdateType updateSource)
 
     if (timeElapsed >= timeLimit)
     {
-        AlignWithGravity();
-		CheckSpeed(); // Checks if Speed between minSpeed and maxSpeed
+        if (MaintainSpeed)
+		{
+			CheckSpeed(); // Checks if Speed between minSpeed and maxSpeed
+		}
+		AlignWithGravity();		
         StatusScreens();
         timeElapsed = 0;
         Echo("Stabilizers on?: " + shouldAlign.ToString());
@@ -159,21 +176,27 @@ IMyShipController GetControlledShipController(List<IMyShipController> controller
 // CheckSpeed() toggles status of ReverseThrusters when needed
 void CheckSpeed()
 {
-	bool ToggleThrusters = false;
 	if (worldVelocity.Length() < minSpeed)
-		{ // turn off Reverse Thrusters
-			Echo("Too Slow. Disabling Reverse Thrusters");	
-			ToggleThrusters = true;
+		{ // Reverse Thrusters OFF, Ahead Thrusters ON
+			foreach (IMyThrust t in reverseThrusters)
+			{
+				t.Enabled = false;
+			}
+			foreach (IMyThrust t in aheadThrusters)
+			{
+				t.Enabled = true;
+			}
 		}
 	else if  (worldVelocity.Length() > maxSpeed)
-		{ // turn on Reverse Thrusters
-			Echo("Too Fast. Enabling Reverse Thrusters");	
-			ToggleThrusters = true;
-		}
-	if (ToggleThrusters)
-		foreach (IMyThrust t in thrusters)
-		{
-			t.Enabled = !t.Enabled;
+		{ // Reverse Thrusters ON, Ahead Thrusters OFF
+			foreach (IMyThrust t in reverseThrusters)
+			{
+				t.Enabled = true;
+			}		
+			foreach (IMyThrust t in aheadThrusters)
+			{
+				t.Enabled = false;
+			}				
 		}
 }
 
